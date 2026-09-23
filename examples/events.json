@@ -1,0 +1,4 @@
+[
+  { "id": "evt_1001", "type": "order.created", "data": { "order_id": "ORD1001", "amount_cents": 12999, "currency": "USD" } },
+  { "id": "evt_1002", "type": "order.created", "data": { "order_id": "ORD1002", "amount_cents": 5950, "currency": "USD" } }
+]
