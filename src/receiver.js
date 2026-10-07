@@ -18,7 +18,7 @@ export function verifySignature(secret, timestamp, body, signature, now = Date.n
 
 export function openInbox(filename = ':memory:') {
   const db = new DatabaseSync(filename);
-  db.exec(`PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;
+  db.exec(`PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL;
     CREATE TABLE IF NOT EXISTS events (
       event_id TEXT PRIMARY KEY, digest TEXT NOT NULL, payload TEXT NOT NULL, received_at TEXT NOT NULL
     ) STRICT;`);

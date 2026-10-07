@@ -8,6 +8,11 @@ The receiver checks HMAC signatures and timestamp freshness before storing an ev
 
 Independent personal portfolio project using synthetic orders. No provider accounts, live purchases, external credentials or employer code are involved.
 
+## Learn the project
+
+- [Technical manual](docs/technical-manual.md): signing, inbox transactions, retry/acknowledgment semantics, failure labs, and extension solutions.
+- [Product story](docs/product-story.md): hypothetical integration workflow, intended users, limits, and demo narration.
+
 ## One-command demo
 
 Requires **Node.js 24.x and Python 3.11+** on your PATH. No third-party runtime packages are required.
@@ -128,6 +133,9 @@ ID and order ID accept 1–100 letters, digits, underscores and hyphens. Amount 
 | `400/401/409/413/415/422` | Invalid input, signature, or conflicting ID | Stop |
 | `408/429/500/502/503/504` | Potentially temporary failure | Retry within the attempt budget |
 | Network timeout/failure | Outcome may be unknown | Retry the same event |
+| 2xx with invalid acknowledgment | Outcome is unknown | Retry within the attempt budget |
+
+The client requires a matching `event_id` and boolean `duplicate` flag: 202/false for a new event or 200/true for a duplicate. A missing, malformed, or mismatched 2xx acknowledgment is retried and ends with `invalid_acknowledgment` if exhausted.
 
 The client keeps event bytes stable between attempts but signs a fresh timestamp. By default its wait is `min(0.5 × 2^(attempt−1), 10)` seconds plus 0–0.25 seconds of jitter. A valid `Retry-After` overrides that delay; a value above 60 seconds stops the local harness with `retry_after_exceeds_budget` rather than retrying early. HTTP redirects are not followed.
 

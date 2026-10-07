@@ -18,7 +18,8 @@ class SenderTests(unittest.TestCase):
 
     def test_retries_transient_statuses_honors_retry_after_and_keeps_bytes(self):
         calls, sleeps = [], []
-        replies = iter([(503, {"Retry-After": "2"}, {}), (429, {}, {}), (202, {}, {})])
+        replies = iter([(503, {"Retry-After": "2"}, {}), (429, {}, {}),
+                        (202, {}, {"event_id": EVENT["id"], "duplicate": False})])
         def transport(url, body, headers):
             calls.append((body, headers))
             return next(replies)
@@ -60,9 +61,35 @@ class SenderTests(unittest.TestCase):
         self.assertIsNone(retry_after_seconds({"retry-after": "bad-value"}, 0))
 
     def test_duplicate_acknowledgment_is_success(self):
-        result = deliver(URL, EVENT, SECRET, transport=lambda *_: (200, {}, {"duplicate": True}))
+        result = deliver(URL, EVENT, SECRET, transport=lambda *_: (200, {}, {"event_id": EVENT["id"], "duplicate": True}))
         self.assertTrue(result.delivered)
         self.assertTrue(result.duplicate)
+
+    def test_invalid_success_acknowledgments_never_claim_delivery(self):
+        for status, payload in [(200, {}), (202, {"event_id": "other", "duplicate": False}),
+                                (202, {"event_id": EVENT["id"], "duplicate": "false"}),
+                                (200, {"event_id": EVENT["id"], "duplicate": False}), (204, {})]:
+            with self.subTest(status=status, payload=payload):
+                sleeps = []
+                result = deliver(URL, EVENT, SECRET, max_attempts=2,
+                                 transport=lambda *_: (status, {}, payload), sleep=sleeps.append, jitter=lambda: 0)
+                self.assertFalse(result.delivered)
+                self.assertEqual(result.reason, "invalid_acknowledgment")
+                self.assertEqual(result.attempts, 2)
+                self.assertEqual(sleeps, [0.5])
+
+    def test_unknown_outcome_recovers_with_a_matching_duplicate_acknowledgment(self):
+        calls = []
+        def transport(_url, body, _headers):
+            calls.append(body)
+            if len(calls) == 1:
+                return 202, {}, {}  # Receiver may have committed; acknowledgment was lost.
+            return 200, {}, {"event_id": EVENT["id"], "duplicate": True}
+        result = deliver(URL, EVENT, SECRET, transport=transport, sleep=lambda _: None)
+        self.assertTrue(result.delivered)
+        self.assertTrue(result.duplicate)
+        self.assertEqual(result.attempts, 2)
+        self.assertEqual(calls[0], calls[1])
 
     def test_rejects_bad_configuration(self):
         for url in ["file:///etc/passwd", "http://user:secret@localhost/test", "https://example.test/#fragment"]:
