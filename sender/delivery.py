@@ -85,10 +85,18 @@ def deliver(url: str, event: dict, secret: str, *, max_attempts: int = 4,
         try:
             status, response_headers, payload = transport(url, body, signed_headers(secret, body, int(clock())))
             if 200 <= status < 300:
-                return Delivery(event["id"], True, attempt, status, payload.get("duplicate") is True, "accepted")
-            if status not in RETRYABLE:
+                # A proxy/error page can return 2xx without acknowledging this
+                # event. Treat that outcome as unknown and retry the same bytes.
+                if (isinstance(payload, dict) and payload.get("event_id") == event["id"]
+                        and type(payload.get("duplicate")) is bool
+                        and ((status == 202 and payload["duplicate"] is False)
+                             or (status == 200 and payload["duplicate"] is True))):
+                    return Delivery(event["id"], True, attempt, status, payload["duplicate"], "accepted")
+                reason = "invalid_acknowledgment"
+            elif status not in RETRYABLE:
                 return Delivery(event["id"], False, attempt, status, False, "permanent_http_error")
-            reason = "retryable_http_error"
+            else:
+                reason = "retryable_http_error"
         except (urllib.error.URLError, TimeoutError, OSError, http.client.HTTPException):
             status = None
             reason = "network_error"

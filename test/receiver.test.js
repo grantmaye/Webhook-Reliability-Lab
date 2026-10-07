@@ -71,3 +71,23 @@ test('HTTP receiver verifies auth, simulates failures, deduplicates concurrent d
   assert.equal(stats.duplicates, 7);
   assert.equal(stats.transient_failures, 1);
 });
+
+test('a database insert failure leaves the event retryable without a partial inbox row', async () => {
+  const { DatabaseSync } = await import('node:sqlite');
+  const folder = mkdtempSync(join(tmpdir(), 'inbox-failure-'));
+  let inbox; let raw;
+  try {
+    const filename = join(folder, 'inbox.sqlite');
+    inbox = openInbox(filename);
+    raw = new DatabaseSync(filename);
+    raw.exec(`CREATE TRIGGER reject_event BEFORE INSERT ON events
+      BEGIN SELECT RAISE(ABORT, 'injected inbox failure'); END;`);
+    const body = Buffer.from(JSON.stringify(event));
+    assert.throws(() => inbox.record(event, body), /injected inbox failure/);
+    assert.equal(inbox.count(), 0);
+    raw.exec('DROP TRIGGER reject_event');
+    assert.equal(inbox.record(event, body).duplicate, false);
+    assert.equal(inbox.record(event, body).duplicate, true);
+    assert.equal(inbox.count(), 1);
+  } finally { raw?.close(); inbox?.close(); rmSync(folder, { recursive: true, force: true }); }
+});
